@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 const R_NM = 3440.065; // Earth radius in nautical miles
+const DISTANCE_FIELDS = ["distance_nm", "distance", "dist", "dst", "r_dst"];
 
 function haversineNm(lat1, lon1, lat2, lon2) {
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -32,6 +33,37 @@ function haversineNm(lat1, lon1, lat2, lon2) {
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) ** 2;
   return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isValidCoordinate(lat, lon) {
+  const latN = Number(lat);
+  const lonN = Number(lon);
+  return (
+    Number.isFinite(latN) &&
+    Number.isFinite(lonN) &&
+    latN >= -90 &&
+    latN <= 90 &&
+    lonN >= -180 &&
+    lonN <= 180
+  );
+}
+
+function positionAgeSeconds(ac) {
+  const age = Number(ac.seen_pos ?? ac.seen ?? 0);
+  return Number.isFinite(age) ? age : 0;
+}
+
+function existingDistanceNm(ac) {
+  for (const field of DISTANCE_FIELDS) {
+    if (ac[field] == null) continue;
+    const n = Number(ac[field]);
+    if (Number.isFinite(n)) return Math.round(n * 10) / 10;
+  }
+  return null;
+}
+
+function aircraftKey(ac, idx = 0) {
+  return ac.hex || `${ac.lat}:${ac.lon}:${ac.flight || ac.r || idx}`;
 }
 
 function formatAlt(alt) {
@@ -143,6 +175,7 @@ class PlaneSightCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._setHomeReceiverFallback();
     // Entity mode: read aircraft list from HA sensor attributes
     if (this._config.entity) {
       const state = hass.states[this._config.entity];
@@ -150,11 +183,11 @@ class PlaneSightCard extends HTMLElement {
         const aircraft = state.attributes.aircraft || [];
         const recvLat = state.attributes.receiver_lat;
         const recvLon = state.attributes.receiver_lon;
-        if (recvLat != null) {
-          this._receiverLat = recvLat;
-          this._receiverLon = recvLon;
+        if (isValidCoordinate(recvLat, recvLon)) {
+          this._receiverLat = Number(recvLat);
+          this._receiverLon = Number(recvLon);
         }
-        this._updateBoard(aircraft);
+        this._updateBoard(aircraft.map((ac) => this._enrichAircraft(ac)));
       }
     }
   }
@@ -186,6 +219,41 @@ class PlaneSightCard extends HTMLElement {
     this._pollTimer = setInterval(poll, intervalMs);
   }
 
+  _setHomeReceiverFallback() {
+    if (this._receiverLat != null && this._receiverLon != null) return;
+    const lat = Number(this._hass?.config?.latitude);
+    const lon = Number(this._hass?.config?.longitude);
+    if (isValidCoordinate(lat, lon)) {
+      this._receiverLat = lat;
+      this._receiverLon = lon;
+    }
+  }
+
+  _enrichAircraft(ac) {
+    const copy = { ...ac };
+    if (copy.flight) copy.flight = copy.flight.trim();
+
+    if (
+      isValidCoordinate(this._receiverLat, this._receiverLon) &&
+      isValidCoordinate(copy.lat, copy.lon)
+    ) {
+      copy.distance_nm =
+        Math.round(
+          haversineNm(
+            Number(this._receiverLat),
+            Number(this._receiverLon),
+            Number(copy.lat),
+            Number(copy.lon)
+          ) * 10
+        ) / 10;
+    } else {
+      const distance = existingDistanceNm(copy);
+      if (distance != null) copy.distance_nm = distance;
+    }
+
+    return copy;
+  }
+
   async _fetchAndUpdate() {
     const base = this._config.url.replace(/\/$/, "");
 
@@ -197,10 +265,13 @@ class PlaneSightCard extends HTMLElement {
           const r = await fetch(`${base}/data/receiver.json`);
           if (r.ok) {
             const recv = await r.json();
-            this._receiverLat = recv.lat ?? null;
-            this._receiverLon = recv.lon ?? null;
+            if (isValidCoordinate(recv.lat, recv.lon)) {
+              this._receiverLat = Number(recv.lat);
+              this._receiverLon = Number(recv.lon);
+            }
           }
         } catch (_) { /* best-effort */ }
+        this._setHomeReceiverFallback();
       }
 
       const resp = await fetch(`${base}/data/aircraft.json`);
@@ -211,17 +282,8 @@ class PlaneSightCard extends HTMLElement {
 
       // Filter & enrich
       const visible = raw
-        .filter((a) => "lat" in a && "lon" in a && (a.seen ?? 999) < 60)
-        .map((a) => {
-          const copy = { ...a };
-          if (copy.flight) copy.flight = copy.flight.trim();
-          if (this._receiverLat != null && this._receiverLon != null) {
-            copy.distance_nm = Math.round(
-              haversineNm(this._receiverLat, this._receiverLon, a.lat, a.lon) * 10
-            ) / 10;
-          }
-          return copy;
-        });
+        .filter((a) => isValidCoordinate(a.lat, a.lon) && positionAgeSeconds(a) <= 60)
+        .map((a) => this._enrichAircraft(a));
 
       visible.sort((a, b) => (a.distance_nm ?? 9999) - (b.distance_nm ?? 9999));
 
@@ -260,7 +322,7 @@ class PlaneSightCard extends HTMLElement {
 
     const max = this._config.max_planes ?? 15;
     const visible = aircraft.slice(0, max);
-    const activeHexes = new Set(visible.map((a) => a.hex));
+    const activeHexes = new Set(visible.map((a, idx) => aircraftKey(a, idx)));
 
     // --- Remove stale rows ---
     for (const [hex, row] of this._rows) {
@@ -280,7 +342,7 @@ class PlaneSightCard extends HTMLElement {
 
     // --- Add or update rows ---
     visible.forEach((ac, idx) => {
-      const hex = ac.hex;
+      const hex = aircraftKey(ac, idx);
       const vals = buildRowValues(ac);
 
       if (this._rows.has(hex)) {
