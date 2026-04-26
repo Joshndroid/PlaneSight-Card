@@ -52,20 +52,9 @@ function formatSpeed(gs) {
 
 function formatDist(nm) {
   if (nm === undefined || nm === null) return "  ---  ";
-  return `${nm.toFixed(1)}nm`;
-}
-
-function formatRoute(ac) {
-  if (ac.route) {
-    const parts = ac.route.split("-");
-    if (parts.length >= 2) {
-      const orig = parts[0].trim().slice(0, 4);
-      const dest = parts[parts.length - 1].trim().slice(0, 4);
-      return `${orig}→${dest}`;
-    }
-    return ac.route.trim().slice(0, 9);
-  }
-  return "   ---   ";
+  const n = Number(nm);
+  if (Number.isNaN(n)) return "  ---  ";
+  return `${n.toFixed(1)}nm`;
 }
 
 function formatCallsign(ac) {
@@ -74,8 +63,16 @@ function formatCallsign(ac) {
 }
 
 function formatType(ac) {
-  const t = (ac.t || "--").trim().slice(0, 4);
-  return t.padEnd(4);
+  const rawType =
+    ac.t ??
+    ac.type ??
+    ac.aircraft_type ??
+    ac.aircraftType ??
+    ac.typeCode ??
+    ac.desc ??
+    "--";
+  const t = String(rawType).trim().slice(0, 7) || "--";
+  return t.padEnd(7);
 }
 
 /** Vertical-speed indicator appended to altitude cell. */
@@ -93,7 +90,6 @@ function buildRowValues(ac) {
     type: formatType(ac),
     alt: formatAlt(ac.alt_baro) + vsIndicator(ac.baro_rate),
     speed: formatSpeed(ac.gs),
-    route: formatRoute(ac),
     dist: formatDist(ac.distance_nm),
   };
 }
@@ -219,7 +215,7 @@ class PlaneSightCard extends HTMLElement {
         .map((a) => {
           const copy = { ...a };
           if (copy.flight) copy.flight = copy.flight.trim();
-          if (this._receiverLat != null) {
+          if (this._receiverLat != null && this._receiverLon != null) {
             copy.distance_nm = Math.round(
               haversineNm(this._receiverLat, this._receiverLon, a.lat, a.lon) * 10
             ) / 10;
@@ -329,7 +325,7 @@ class PlaneSightCard extends HTMLElement {
     row.dataset.hex = hex;
     row.style.animationDelay = `${idx * 25}ms`;
 
-    const COLS = ["flight", "type", "alt", "speed", "route", "dist"];
+    const COLS = ["flight", "type", "alt", "speed", "dist"];
     COLS.forEach((col, colIdx) => {
       const cell = document.createElement("div");
       cell.className = `cell col-${col}`;
@@ -392,7 +388,6 @@ class PlaneSightCard extends HTMLElement {
             <div class="lbl lbl-type">TYPE</div>
             <div class="lbl lbl-alt">ALTITUDE</div>
             <div class="lbl lbl-speed">SPEED</div>
-            <div class="lbl lbl-route">ROUTE</div>
             <div class="lbl lbl-dist">DIST</div>
           </div>
 
@@ -422,6 +417,7 @@ class PlaneSightCard extends HTMLElement {
         --green:        #22c55e;
         --red:          #ef4444;
         --blue:         #60a5fa;
+        --board-cols:   9ch 8ch 10ch 7ch 8ch;
 
         display: block;
         font-family: 'Courier New', 'Lucida Console', 'DejaVu Sans Mono', monospace;
@@ -518,7 +514,7 @@ class PlaneSightCard extends HTMLElement {
       /* ── Column labels ──────────────────────────────────────────────── */
       .col-labels {
         display: grid;
-        grid-template-columns: 9ch 5ch 10ch 6ch 10ch 7ch;
+        grid-template-columns: var(--board-cols);
         gap: 0 3px;
         padding: 5px 12px 4px;
         background: #060810;
@@ -551,7 +547,7 @@ class PlaneSightCard extends HTMLElement {
       /* ── Aircraft rows ──────────────────────────────────────────────── */
       .ac-row {
         display: grid;
-        grid-template-columns: 9ch 5ch 10ch 6ch 10ch 7ch;
+        grid-template-columns: var(--board-cols);
         gap: 0 3px;
         padding: 3px 12px;
         border-bottom: 1px solid var(--border);
@@ -614,7 +610,6 @@ class PlaneSightCard extends HTMLElement {
       .col-type   { color: #d4a840; }
       .col-alt    { color: #e2a030; }
       .col-speed  { color: #c9a060; }
-      .col-route  { color: #85c1e9; text-shadow: 0 0 6px rgba(133,193,233,0.25); }
       .col-dist   { color: #6ee08a; text-shadow: 0 0 6px rgba(110,224,138,0.25); }
 
       /* ── Flip animation ─────────────────────────────────────────────── */
