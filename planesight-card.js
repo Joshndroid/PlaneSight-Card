@@ -68,8 +68,11 @@ function aircraftKey(ac, idx = 0) {
 
 function formatAlt(alt) {
   if (alt === undefined || alt === null) return "  ---  ";
-  if (typeof alt === "string") return "  GND  ";
-  const n = Math.round(alt);
+  if (typeof alt === "string") {
+    return alt.trim().toLowerCase() === "ground" ? "  GND  " : "  ---  ";
+  }
+  const n = Math.round(Number(alt));
+  if (!Number.isFinite(n)) return "  ---  ";
   if (n >= 18000) {
     const fl = Math.round(n / 100);
     return `FL${String(fl).padStart(3, "0")}`;
@@ -97,7 +100,6 @@ function formatCallsign(ac) {
 function formatType(ac) {
   const rawType =
     ac.t ??
-    ac.type ??
     ac.aircraft_type ??
     ac.aircraftType ??
     ac.typeCode ??
@@ -479,7 +481,7 @@ class PlaneSightCard extends HTMLElement {
         --green:        #22c55e;
         --red:          #ef4444;
         --blue:         #60a5fa;
-        --board-cols:   9ch 8ch 10ch 7ch 8ch;
+        --board-cols:   minmax(8ch, 1.45fr) minmax(5.5ch, 0.9fr) minmax(8.5ch, 1.2fr) minmax(5.5ch, 0.85fr) minmax(6.5ch, 0.95fr);
 
         display: block;
         font-family: 'Courier New', 'Lucida Console', 'DejaVu Sans Mono', monospace;
@@ -577,6 +579,8 @@ class PlaneSightCard extends HTMLElement {
       .col-labels {
         display: grid;
         grid-template-columns: var(--board-cols);
+        width: 100%;
+        box-sizing: border-box;
         gap: 0 3px;
         padding: 5px 12px 4px;
         background: #060810;
@@ -610,6 +614,8 @@ class PlaneSightCard extends HTMLElement {
       .ac-row {
         display: grid;
         grid-template-columns: var(--board-cols);
+        width: 100%;
+        box-sizing: border-box;
         gap: 0 3px;
         padding: 3px 12px;
         border-bottom: 1px solid var(--border);
@@ -646,6 +652,7 @@ class PlaneSightCard extends HTMLElement {
 
       /* ── Cells ──────────────────────────────────────────────────────── */
       .cell {
+        min-width: 0;
         font-size: 0.82em;
         text-align: center;
         padding: 4px 3px;
