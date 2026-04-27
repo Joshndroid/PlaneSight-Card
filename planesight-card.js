@@ -72,7 +72,10 @@ function aircraftKey(ac, idx = 0) {
 function isAircraftTypeCode(value) {
   if (value === undefined || value === null) return false;
   const code = String(value).trim().toUpperCase();
-  return /^[A-Z0-9]{2,5}$/.test(code) && !["ADSB", "MLAT", "TISB"].includes(code);
+  // Must be 2–8 alphanumeric chars; exclude known message-source labels
+  if (!/^[A-Z0-9]{2,8}$/.test(code)) return false;
+  const EXCLUDED = ["ADSB", "MLAT", "TISB", "ADSBICAO", "ADSBOTHER", "MODE_S"];
+  return !EXCLUDED.includes(code);
 }
 
 function formatAlt(alt) {
@@ -80,9 +83,20 @@ function formatAlt(alt) {
   if (typeof alt === "string") {
     const value = alt.trim().toLowerCase();
     if (value === "ground") return "  GND  ";
-    const numericAlt = Number(alt);
-    if (!Number.isFinite(numericAlt)) return "  ---  ";
-    alt = numericAlt;
+    // tar1090/readsb returns "FL200" for high-altitude pressure altitude —
+    // convert: FL number × 100 = feet, then feet → metres.
+    if (value.startsWith("fl")) {
+      const fl = Number(value.slice(2));
+      if (Number.isFinite(fl)) {
+        alt = fl * 100; // FL200 → 20 000 ft
+      } else {
+        return "  ---  ";
+      }
+    } else {
+      const numericAlt = Number(alt);
+      if (!Number.isFinite(numericAlt)) return "  ---  ";
+      alt = numericAlt;
+    }
   }
   const metres = Math.round((Number(alt) * FEET_TO_METRES) / 10) * 10;
   if (!Number.isFinite(metres)) return "  ---  ";
@@ -110,6 +124,8 @@ function formatCallsign(ac) {
 }
 
 function formatType(ac) {
+  // ac.t  is tar1090/readsb's ICAO type designator field (e.g. "B738", "E190").
+  // ac.type is the *message source* ("adsb_icao", "mlat", …) — intentionally excluded.
   const rawType = [
     ac.t,
     ac.aircraft_type,
@@ -121,7 +137,6 @@ function formatType(ac) {
     ac.type_code,
     ac.ac_type,
     ac.model_code,
-    ac.type,
   ].find(isAircraftTypeCode);
   const t = rawType ? String(rawType).trim().toUpperCase().slice(0, 7) : "--";
   return t.padEnd(7);
@@ -137,10 +152,15 @@ function vsIndicator(baroRate) {
 
 /** Build the cell-value objects for a given aircraft entry. */
 function buildRowValues(ac) {
+  // Prefer barometric altitude; fall back to geometric if baro is absent.
+  // Both fields may be numeric feet OR the string "ground" / "FL200" etc.
+  const altSource = (ac.alt_baro !== undefined && ac.alt_baro !== null)
+    ? ac.alt_baro
+    : ac.alt_geom;
   return {
     flight: formatCallsign(ac),
     type: formatType(ac),
-    alt: formatAlt(ac.alt_baro) + vsIndicator(ac.baro_rate),
+    alt: formatAlt(altSource) + vsIndicator(ac.baro_rate),
     speed: formatSpeed(ac.gs),
     dist: formatDist(ac.distance_nm),
   };
