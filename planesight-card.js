@@ -186,6 +186,7 @@ class PlaneSightCard extends HTMLElement {
     this._receiverLat = null;
     this._receiverLon = null;
     this._receiverFetched = false;
+    this._lastSensorUpdated = null;
     this._status = "connecting";
   }
 
@@ -205,6 +206,21 @@ class PlaneSightCard extends HTMLElement {
     if (!config.url && !config.entity) {
       throw new Error("PlaneSight card: provide either `url` or `entity`");
     }
+
+    // ── Clean up before re-configuring ──────────────────────────────────
+    // If setConfig is called again (HA reload, card editor), stop the old
+    // poll timer and clear row tracking so stale detached DOM elements don't
+    // block the freshly rendered board from ever populating.
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+    this._rows.clear();
+    this._prevValues.clear();
+    this._receiverFetched = false;
+    this._lastSensorUpdated = null;
+    // ────────────────────────────────────────────────────────────────────
+
     this._config = { ...config };
     this._render();
 
@@ -216,10 +232,16 @@ class PlaneSightCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._setHomeReceiverFallback();
-    // Entity mode: read aircraft list from HA sensor attributes
+    // Entity mode: read aircraft list from HA sensor attributes.
+    // HA calls set hass on EVERY entity state change in the system, not just
+    // when the PlaneSight sensor updates.  Guard against redundant re-renders
+    // by skipping if the sensor's last_updated timestamp hasn't changed.
     if (this._config.entity) {
       const state = hass.states[this._config.entity];
       if (state) {
+        if (state.last_updated === this._lastSensorUpdated) return;
+        this._lastSensorUpdated = state.last_updated;
+
         const aircraft = state.attributes.aircraft || [];
         const recvLat = state.attributes.receiver_lat;
         const recvLon = state.attributes.receiver_lon;
@@ -249,6 +271,7 @@ class PlaneSightCard extends HTMLElement {
   // ------------------------------------------------------------------
 
   _startPolling() {
+    if (this._pollTimer) return; // already running — don't stack intervals
     const intervalMs = (this._config.poll_interval || 5) * 1000;
 
     const poll = async () => {
@@ -368,15 +391,16 @@ class PlaneSightCard extends HTMLElement {
     for (const [hex, row] of this._rows) {
       if (!activeHexes.has(hex)) {
         row.classList.add("row-exit");
-        row.addEventListener(
-          "animationend",
-          () => {
-            row.remove();
-            this._rows.delete(hex);
-            this._prevValues.delete(hex);
-          },
-          { once: true }
-        );
+        // Use a timeout fallback in case animationend never fires (e.g. the
+        // browser suppresses animations on backgrounded tabs, or the element
+        // is detached before the animation completes).
+        const doRemove = () => {
+          if (row.parentNode) row.remove();
+          this._rows.delete(hex);
+          this._prevValues.delete(hex);
+        };
+        row.addEventListener("animationend", doRemove, { once: true });
+        setTimeout(doRemove, 500); // 500 ms > animation duration (0.4 s)
       }
     }
 
