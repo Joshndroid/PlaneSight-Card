@@ -22,6 +22,9 @@
 // ---------------------------------------------------------------------------
 
 const R_NM = 3440.065; // Earth radius in nautical miles
+const FEET_TO_METRES = 0.3048;
+const KNOTS_TO_KMH = 1.852;
+const NM_TO_KM = 1.852;
 const DISTANCE_FIELDS = ["distance_nm", "distance", "dist", "dst", "r_dst"];
 
 function haversineNm(lat1, lon1, lat2, lon2) {
@@ -66,30 +69,39 @@ function aircraftKey(ac, idx = 0) {
   return ac.hex || `${ac.lat}:${ac.lon}:${ac.flight || ac.r || idx}`;
 }
 
+function isAircraftTypeCode(value) {
+  if (value === undefined || value === null) return false;
+  const code = String(value).trim().toUpperCase();
+  return /^[A-Z0-9]{2,5}$/.test(code) && !["ADSB", "MLAT", "TISB"].includes(code);
+}
+
 function formatAlt(alt) {
   if (alt === undefined || alt === null) return "  ---  ";
   if (typeof alt === "string") {
-    return alt.trim().toLowerCase() === "ground" ? "  GND  " : "  ---  ";
+    const value = alt.trim().toLowerCase();
+    if (value === "ground") return "  GND  ";
+    const numericAlt = Number(alt);
+    if (!Number.isFinite(numericAlt)) return "  ---  ";
+    alt = numericAlt;
   }
-  const n = Math.round(Number(alt));
-  if (!Number.isFinite(n)) return "  ---  ";
-  if (n >= 18000) {
-    const fl = Math.round(n / 100);
-    return `FL${String(fl).padStart(3, "0")}`;
-  }
-  return `${n.toLocaleString()}ft`;
+  const metres = Math.round((Number(alt) * FEET_TO_METRES) / 10) * 10;
+  if (!Number.isFinite(metres)) return "  ---  ";
+  return `${metres.toLocaleString()}m`;
 }
 
 function formatSpeed(gs) {
   if (gs === undefined || gs === null) return " --- ";
-  return `${Math.round(gs)}kt`;
+  const kmh = Math.round(Number(gs) * KNOTS_TO_KMH);
+  if (!Number.isFinite(kmh)) return " --- ";
+  return `${kmh}km/h`;
 }
 
 function formatDist(nm) {
   if (nm === undefined || nm === null) return "  ---  ";
   const n = Number(nm);
   if (Number.isNaN(n)) return "  ---  ";
-  return `${n.toFixed(1)}nm`;
+  const km = n * NM_TO_KM;
+  return `${km < 100 ? km.toFixed(1) : Math.round(km)}km`;
 }
 
 function formatCallsign(ac) {
@@ -98,14 +110,20 @@ function formatCallsign(ac) {
 }
 
 function formatType(ac) {
-  const rawType =
-    ac.t ??
-    ac.aircraft_type ??
-    ac.aircraftType ??
-    ac.typeCode ??
-    ac.desc ??
-    "--";
-  const t = String(rawType).trim().slice(0, 7) || "--";
+  const rawType = [
+    ac.t,
+    ac.aircraft_type,
+    ac.aircraftType,
+    ac.icao_type,
+    ac.icaoType,
+    ac.icaoTypeCode,
+    ac.typeCode,
+    ac.type_code,
+    ac.ac_type,
+    ac.model_code,
+    ac.type,
+  ].find(isAircraftTypeCode);
+  const t = rawType ? String(rawType).trim().toUpperCase().slice(0, 7) : "--";
   return t.padEnd(7);
 }
 
@@ -450,9 +468,9 @@ class PlaneSightCard extends HTMLElement {
           <div class="col-labels">
             <div class="lbl lbl-flight">FLIGHT</div>
             <div class="lbl lbl-type">TYPE</div>
-            <div class="lbl lbl-alt">ALTITUDE</div>
-            <div class="lbl lbl-speed">SPEED</div>
-            <div class="lbl lbl-dist">DIST</div>
+            <div class="lbl lbl-alt">ALT M</div>
+            <div class="lbl lbl-speed">KM/H</div>
+            <div class="lbl lbl-dist">KM</div>
           </div>
 
           <!-- ── Scrollable body ────────────────────────────────────── -->
@@ -481,7 +499,7 @@ class PlaneSightCard extends HTMLElement {
         --green:        #22c55e;
         --red:          #ef4444;
         --blue:         #60a5fa;
-        --board-cols:   minmax(8ch, 1.45fr) minmax(5.5ch, 0.9fr) minmax(8.5ch, 1.2fr) minmax(5.5ch, 0.85fr) minmax(6.5ch, 0.95fr);
+        --board-cols:   minmax(8ch, 1.35fr) minmax(5.5ch, 0.85fr) minmax(7ch, 1fr) minmax(7ch, 0.95fr) minmax(6.5ch, 0.85fr);
 
         display: block;
         font-family: 'Courier New', 'Lucida Console', 'DejaVu Sans Mono', monospace;
