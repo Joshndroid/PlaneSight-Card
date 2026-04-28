@@ -529,24 +529,63 @@ class PlaneSightCard extends HTMLElement {
     return `
       @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 
-      /* ── Variables ─────────────────────────────────────────────────── */
+      /* ══════════════════════════════════════════════════════════════════
+         THEME TOKENS — Update ONLY this block when you change HA theme.
+         These map directly to variables in ios_tahoe_dark_glass (theme.yaml).
+         ══════════════════════════════════════════════════════════════════ */
       :host {
+        /* Backgrounds — ios_tahoe_dark_glass */
+        --theme-bg-void:       #07070c;                    /* primary-background-color     */
+        --theme-bg-elevated:   #0d0d14;                    /* secondary-background-color   */
+        --theme-bg-card:       #13131c;                    /* ha-card-background           */
+        --theme-bg-surface:    #15151e;                    /* mdc-theme-surface            */
+
+        /* Borders & dividers */
+        --theme-border-glass:  rgba(255, 255, 255, 0.18);  /* ha-card-border-color         */
+        --theme-border-dim:    rgba(255, 255, 255, 0.06);  /* divider-color                */
+        --theme-border-inner:  rgba(255, 255, 255, 0.10);  /* inner separator lines        */
+
+        /* Card shape & shadow — matches ha-card-* in theme */
+        --theme-card-radius:   22px;                       /* ha-card-border-radius        */
+        --theme-card-shadow:
+          0 8px 40px rgba(0, 0, 0, 0.65),
+          0 2px 12px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.10);        /* ha-card-box-shadow           */
+
+        /* Accent & semantic */
+        --theme-accent:        #1a90ff;                    /* primary-color                */
+        --theme-success:       #30d158;                    /* success-color                */
+        --theme-error:         #ff453a;                    /* error-color                  */
+        --theme-warning:       #ffd60a;                    /* warning-color                */
+        --theme-info:          #64d2ff;                    /* info-color                   */
+
+        /* Text */
+        --theme-text:          #f2f2f7;                    /* primary-text-color           */
+        --theme-text-dim:      rgba(235, 235, 245, 0.60); /* secondary-text-color         */
+        --theme-text-faint:    rgba(235, 235, 245, 0.30); /* disabled-text-color          */
+        /* ════════════════════════════════════════════════════════════════
+           END THEME TOKENS — everything below is board-specific styling.
+           ════════════════════════════════════════════════════════════════ */
+
+        /* ── Departure-board amber palette ─────────────────────────────── */
         --amber:        #ffb347;
         --amber-dim:    #b07830;
         --amber-bright: #ffd060;
-        --amber-glow:   rgba(255,179,71,0.25);
-        --bg:           #07090d;
-        --panel:        #0c0f16;
-        --panel-alt:    #0a0d13;
-        --border:       #141a26;
-        --header-bg:    #050709;
-        --label-color:  #3a4560;
-        --status-color: #5a6a85;
-        --green:        #22c55e;
-        --red:          #ef4444;
-        --blue:         #60a5fa;
-        --board-cols:   minmax(8ch, 1.35fr) minmax(5.5ch, 0.85fr) minmax(7ch, 1fr) minmax(7ch, 0.95fr) minmax(6.5ch, 0.85fr);
+        --amber-glow:   rgba(255, 179, 71, 0.25);
 
+        /* ── Semantic board vars (mapped to theme tokens above) ─────────── */
+        --bg:           var(--theme-bg-void);
+        --panel:        var(--theme-bg-card);
+        --panel-alt:    var(--theme-bg-elevated);
+        --border:       var(--theme-border-dim);
+        --header-bg:    var(--theme-bg-void);
+        --label-color:  var(--theme-text-faint);
+        --status-color: var(--theme-text-dim);
+        --green:        var(--theme-success);
+        --red:          var(--theme-error);
+        --blue:         var(--theme-accent);
+
+        --board-cols: minmax(8ch, 1.35fr) minmax(5.5ch, 0.85fr) minmax(7ch, 1fr) minmax(7ch, 0.95fr) minmax(6.5ch, 0.85fr);
         display: block;
         font-family: 'JetBrains Mono', 'Courier New', monospace;
       }
@@ -554,8 +593,10 @@ class PlaneSightCard extends HTMLElement {
       ha-card {
         background: var(--bg);
         overflow: hidden;
-        border: 1px solid #1a2030;
-        box-shadow: 0 0 40px rgba(0,0,0,0.8), inset 0 0 80px rgba(0,0,0,0.3);
+        border: var(--theme-card-radius);
+        border: 1px solid var(--theme-border-glass);
+        border-radius: var(--theme-card-radius);
+        box-shadow: var(--theme-card-shadow);
       }
 
       /* ── Board shell ────────────────────────────────────────────────── */
@@ -586,7 +627,7 @@ class PlaneSightCard extends HTMLElement {
         align-items: center;
         padding: 10px 14px;
         background: var(--header-bg);
-        border-bottom: 1px solid #1c2333;
+        border-bottom: 1px solid var(--theme-border-inner);
       }
 
       .header-left {
@@ -647,8 +688,8 @@ class PlaneSightCard extends HTMLElement {
         box-sizing: border-box;
         gap: 0 3px;
         padding: 5px 12px 4px;
-        background: #060810;
-        border-bottom: 1px solid #1c2535;
+        background: var(--theme-bg-elevated);
+        border-bottom: 1px solid var(--theme-border-inner);
       }
 
       .lbl {
@@ -667,12 +708,12 @@ class PlaneSightCard extends HTMLElement {
         overflow-y: auto;
         max-height: ${height}px;
         scrollbar-width: thin;
-        scrollbar-color: #1e2535 transparent;
+        scrollbar-color: var(--theme-border-inner) transparent;
       }
 
       .board-body::-webkit-scrollbar { width: 4px; }
       .board-body::-webkit-scrollbar-track { background: transparent; }
-      .board-body::-webkit-scrollbar-thumb { background: #1e2535; border-radius: 2px; }
+      .board-body::-webkit-scrollbar-thumb { background: var(--theme-border-inner); border-radius: 2px; }
 
       /* ── Aircraft rows ──────────────────────────────────────────────── */
       .ac-row {
