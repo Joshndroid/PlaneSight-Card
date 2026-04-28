@@ -527,6 +527,8 @@ class PlaneSightCard extends HTMLElement {
 
   _css(height) {
     return `
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
       /* ── Variables ─────────────────────────────────────────────────── */
       :host {
         --amber:        #ffb347;
@@ -546,7 +548,7 @@ class PlaneSightCard extends HTMLElement {
         --board-cols:   minmax(8ch, 1.35fr) minmax(5.5ch, 0.85fr) minmax(7ch, 1fr) minmax(7ch, 0.95fr) minmax(6.5ch, 0.85fr);
 
         display: block;
-        font-family: 'Courier New', 'Lucida Console', 'DejaVu Sans Mono', monospace;
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
       }
 
       ha-card {
