@@ -69,6 +69,24 @@ function aircraftKey(ac, idx = 0) {
   return ac.hex || `${ac.lat}:${ac.lon}:${ac.flight || ac.r || idx}`;
 }
 
+function aircraftIdentity(ac) {
+  const hex = ac.hex == null ? "" : String(ac.hex).trim().toLowerCase();
+  return hex || null;
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isYesterdayKey(dateKey, todayKey = localDateKey()) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return dateKey === localDateKey(yesterday) && todayKey === localDateKey();
+}
+
 function isAircraftTypeCode(value) {
   if (value === undefined || value === null) return false;
   const code = String(value).trim().toUpperCase();
@@ -188,6 +206,10 @@ class PlaneSightCard extends HTMLElement {
     this._receiverFetched = false;
     this._lastSensorUpdated = null;
     this._status = "connecting";
+    this._seenDate = localDateKey();
+    this._seenTodayKeys = new Set();
+    this._seenToday = 0;
+    this._seenYesterday = 0;
   }
 
   // ------------------------------------------------------------------
@@ -222,6 +244,7 @@ class PlaneSightCard extends HTMLElement {
     // ────────────────────────────────────────────────────────────────────
 
     this._config = { ...config };
+    this._loadDailySeenState();
     this._render();
 
     if (config.url) {
@@ -243,6 +266,9 @@ class PlaneSightCard extends HTMLElement {
         this._lastSensorUpdated = state.last_updated;
 
         const aircraft = state.attributes.aircraft || [];
+        this._seenToday = Number(state.attributes.unique_seen_today ?? 0);
+        this._seenYesterday = Number(state.attributes.unique_seen_yesterday ?? 0);
+        this._seenDate = state.attributes.unique_seen_date || localDateKey();
         const recvLat = state.attributes.receiver_lat;
         const recvLon = state.attributes.receiver_lon;
         if (isValidCoordinate(recvLat, recvLon)) {
@@ -317,6 +343,72 @@ class PlaneSightCard extends HTMLElement {
     return copy;
   }
 
+  _dailyStorageKey() {
+    const source = this._config.url || this._config.entity || "default";
+    return `planesight-card:daily-seen:${source}`;
+  }
+
+  _loadDailySeenState() {
+    this._seenDate = localDateKey();
+    this._seenTodayKeys = new Set();
+    this._seenToday = 0;
+    this._seenYesterday = 0;
+
+    if (!this._config.url) return;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(this._dailyStorageKey()) || "{}");
+      const savedDate = saved.date;
+      const savedKeys = Array.isArray(saved.today_keys) ? saved.today_keys : [];
+      if (savedDate === this._seenDate) {
+        this._seenTodayKeys = new Set(savedKeys);
+        this._seenToday = this._seenTodayKeys.size;
+        this._seenYesterday = Number(saved.yesterday_count ?? 0);
+      } else if (isYesterdayKey(savedDate, this._seenDate)) {
+        this._seenYesterday = savedKeys.length;
+      }
+    } catch (_) {
+      // Ignore corrupt local card state; live data will rebuild the count.
+    }
+  }
+
+  _saveDailySeenState() {
+    if (!this._config.url) return;
+    const payload = {
+      date: this._seenDate,
+      today_keys: [...this._seenTodayKeys],
+      yesterday_count: this._seenYesterday,
+    };
+    localStorage.setItem(this._dailyStorageKey(), JSON.stringify(payload));
+  }
+
+  _rollDailySeenState() {
+    const today = localDateKey();
+    if (today === this._seenDate) return;
+
+    this._seenYesterday = isYesterdayKey(this._seenDate, today)
+      ? this._seenTodayKeys.size
+      : 0;
+    this._seenTodayKeys = new Set();
+    this._seenToday = 0;
+    this._seenDate = today;
+    this._saveDailySeenState();
+  }
+
+  _trackDailySeen(rawAircraft) {
+    this._rollDailySeenState();
+    let changed = false;
+    rawAircraft.forEach((ac) => {
+      const id = aircraftIdentity(ac);
+      if (id && !this._seenTodayKeys.has(id)) {
+        this._seenTodayKeys.add(id);
+        changed = true;
+      }
+    });
+    this._seenToday = this._seenTodayKeys.size;
+    if (changed) this._saveDailySeenState();
+  }
+
   async _fetchAndUpdate() {
     const base = this._config.url.replace(/\/$/, "");
 
@@ -342,6 +434,7 @@ class PlaneSightCard extends HTMLElement {
 
       const data = await resp.json();
       const raw = data.aircraft || [];
+      this._trackDailySeen(raw);
 
       // Filter & enrich
       const visible = raw
@@ -365,17 +458,25 @@ class PlaneSightCard extends HTMLElement {
   _setStatus(state, count) {
     const dot = this.shadowRoot.getElementById("ps-dot");
     const countEl = this.shadowRoot.getElementById("ps-count");
-    if (!dot || !countEl) return;
+    const todayEl = this.shadowRoot.getElementById("ps-seen-today");
+    const yesterdayEl = this.shadowRoot.getElementById("ps-seen-yesterday");
+    if (!dot || !countEl || !todayEl || !yesterdayEl) return;
 
     if (state === "live") {
       dot.className = "dot dot-live";
       countEl.textContent = `${count} aircraft`;
+      todayEl.textContent = `${this._seenToday} today`;
+      yesterdayEl.textContent = `${this._seenYesterday} yesterday`;
     } else if (state === "error") {
       dot.className = "dot dot-error";
       countEl.textContent = "no signal";
+      todayEl.textContent = "";
+      yesterdayEl.textContent = "";
     } else {
       dot.className = "dot dot-idle";
       countEl.textContent = "connecting…";
+      todayEl.textContent = "";
+      yesterdayEl.textContent = "";
     }
   }
 
@@ -505,6 +606,8 @@ class PlaneSightCard extends HTMLElement {
             <div class="header-right">
               <span class="dot dot-idle" id="ps-dot"></span>
               <span class="plane-count" id="ps-count">connecting…</span>
+              <span class="daily-count" id="ps-seen-today"></span>
+              <span class="daily-count" id="ps-seen-yesterday"></span>
             </div>
           </div>
 
@@ -625,6 +728,7 @@ class PlaneSightCard extends HTMLElement {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 12px;
         padding: 10px 14px;
         background: var(--header-bg);
         border-bottom: 1px solid var(--theme-border-inner);
@@ -634,6 +738,7 @@ class PlaneSightCard extends HTMLElement {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
       }
 
       .header-icon {
@@ -648,15 +753,34 @@ class PlaneSightCard extends HTMLElement {
         letter-spacing: 0.3em;
         color: var(--amber);
         text-shadow: 0 0 18px var(--amber-glow), 0 0 6px rgba(255,179,71,0.4);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .header-right {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
         gap: 7px;
         font-size: 0.72em;
         color: var(--status-color);
         letter-spacing: 0.05em;
+        text-align: right;
+      }
+
+      .plane-count,
+      .daily-count {
+        white-space: nowrap;
+      }
+
+      .daily-count {
+        color: var(--theme-text-faint);
+      }
+
+      .daily-count:empty {
+        display: none;
       }
 
       /* Live indicator dot */
